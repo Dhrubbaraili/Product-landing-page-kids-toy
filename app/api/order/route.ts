@@ -15,6 +15,17 @@ function emailLayout(title: string, body: string) { return `<div style="backgrou
 const row = (label: string, value: unknown) => `<tr><td style="padding:9px 0;color:#6b7890">${escapeHtml(label)}</td><td style="padding:9px 0;text-align:right;font-weight:700">${escapeHtml(value)}</td></tr>`;
 
 function getServiceAccountCredentials() {
+  const encodedCredentials = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
+  if (encodedCredentials) {
+    try {
+      const parsed = JSON.parse(Buffer.from(encodedCredentials, 'base64').toString('utf8')) as { client_email?: string; private_key?: string };
+      if (!parsed.client_email || !parsed.private_key) throw new Error('Google service-account JSON is missing required fields.');
+      return { client_email: parsed.client_email, private_key: parsed.private_key };
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error('Google service-account JSON is invalid.');
+      throw error;
+    }
+  }
   const configuredPath = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_PATH;
   if (configuredPath) {
     const credentialPath = path.isAbsolute(configuredPath) ? configuredPath : path.join(process.cwd(), configuredPath);
@@ -73,7 +84,7 @@ export async function POST(request: Request) {
   const quantityNumber = Number(quantity); const priceNumber = Number(pricePerPiece); const totalNumber = Number(totalPrice);
   if (![name, phone, email, location, productName].every(required) || !/^\S+@\S+\.\S+$/.test(String(email)) || productName !== product.name || priceNumber !== product.offerPrice || !Number.isInteger(quantityNumber) || quantityNumber < 1 || !Number.isFinite(totalNumber) || totalNumber !== priceNumber * quantityNumber) return NextResponse.json({ error: 'Please complete all fields with valid order details.' }, { status: 400 });
   const missing = ['GOOGLE_SHEET_ID', 'GOOGLE_SHEET_TAB_NAME', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'BUSINESS_EMAIL'].filter(key => !process.env[key]);
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON_PATH && (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY)) missing.push('GOOGLE_SERVICE_ACCOUNT_JSON_PATH (or GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY)');
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 && !process.env.GOOGLE_SERVICE_ACCOUNT_JSON_PATH && (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY)) missing.push('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (or GOOGLE_SERVICE_ACCOUNT_JSON_PATH or GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY)');
   if (missing.length) return NextResponse.json({ error: `Server is not configured yet. Missing: ${missing.join(', ')}` }, { status: 500 });
   const id = orderId(); const date = new Date().toLocaleString('en-NP', { timeZone: 'Asia/Kathmandu' }); const status = 'New Order'; const payment = 'Cash On Delivery';
   try {
