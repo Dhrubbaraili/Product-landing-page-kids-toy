@@ -1,0 +1,3 @@
+'use client';
+import { useLanguage } from '@/components/LanguageProvider';
+export default function LanguageSwitcher() { const { language, setLanguage, t } = useLanguage(); return <div className="language-switcher" aria-label={t('language')}><span className="language-label">{t('language')}</span><button type="button" aria-pressed={language === 'ne'} className={language === 'ne' ? 'active' : ''} onClick={() => setLanguage('ne')}>{t('nepali')}</button><button type="button" aria-pressed={language === 'en'} className={language === 'en' ? 'active' : ''} onClick={() => setLanguage('en')}>{t('english')}</button></div>; }

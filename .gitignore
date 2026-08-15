@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+npm-debug.log*
+
+# Local Google service-account credentials and secret files
+secrets/
+**/secrets/
+*service-account*.json
+google-service-account*.json

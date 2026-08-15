@@ -1,0 +1,3 @@
+'use client';
+import { useRouter } from 'next/navigation';
+export default function CTA({ label='Order Now', quantity=1, secondary=false }: { label?: string; quantity?: number; secondary?: boolean }) { const router = useRouter(); return <button onClick={() => router.push(`/checkout?product=interactive-rc-dancing-robot&quantity=${quantity}`)} className={`rounded-full px-6 py-3 text-sm font-bold transition duration-200 hover:-translate-y-0.5 active:scale-95 ${secondary ? 'border border-ink/15 bg-white text-ink hover:border-electric' : 'bg-red-500 text-white shadow-lg shadow-red-500/20 hover:bg-red-600'}`}>{label} <span aria-hidden>→</span></button>; }

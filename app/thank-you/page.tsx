@@ -1,0 +1,10 @@
+'use client';
+import Link from 'next/link';
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Logo from '@/components/Logo';
+import { useLanguage } from '@/components/LanguageProvider';
+import { product, money } from '@/lib/product';
+
+function ThankYouContent() { const { t } = useLanguage(); const params = useSearchParams(); const quantity = Math.max(1, Number(params.get('quantity') || 1)); const total = Number(params.get('total') || product.offerPrice * quantity); return <main className="grid min-h-screen place-items-center bg-sky p-5"><div className="w-full max-w-xl text-center"><Logo/><div className="mt-10 rounded-[2rem] bg-white p-8 shadow-glow md:p-12"><div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-green-500 text-4xl text-white">✓</div><p className="mt-7 text-sm font-black uppercase tracking-[.2em] text-electric">{t('orderReceived')}</p><h1 className="mt-3 text-4xl font-black tracking-tight">{t('thankYou')}</h1><p className="mx-auto mt-4 max-w-md leading-7 text-ink/60">{t('confirmMessage')}</p><div className="mt-8 rounded-2xl bg-sky p-5 text-left text-sm"><div className="flex justify-between"><span>{t('orderId')}</span><b>{params.get('orderId') || 'Pending'}</b></div><div className="mt-3 flex justify-between"><span>{t('product')}</span><b>{product.name}</b></div><div className="mt-3 flex justify-between"><span>{t('quantity')}</span><b>{quantity}</b></div><div className="mt-3 flex justify-between"><span>{t('totalPrice')}</span><b className="text-electric">{money(total)}</b></div><div className="mt-3 flex justify-between"><span>{t('payment')}</span><b>{t('payment')}</b></div></div><Link href="/" className="mt-8 inline-block rounded-full bg-red-500 px-7 py-3 text-sm font-black text-white hover:bg-red-600">{t('backHome')}</Link></div></div></main>; }
+export default function ThankYou() { return <Suspense fallback={<main className="grid min-h-screen place-items-center bg-sky font-bold">Loading...</main>}><ThankYouContent /></Suspense>; }

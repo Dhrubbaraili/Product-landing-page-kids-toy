@@ -1,0 +1,3 @@
+'use client';
+import Image from 'next/image'; import { useState } from 'react';
+export default function Gallery({ images }: { images: string[] }) { const [active,setActive]=useState(0); return <div><div className="relative aspect-square overflow-hidden rounded-[2rem] bg-sky shadow-glow"><Image src={images[active]} alt="Interactive RC Dancing Robot" fill className="object-cover" priority /></div><div className="mt-4 grid grid-cols-7 gap-2">{images.map((src,i)=><button key={src} onClick={()=>setActive(i)} className={`relative aspect-square overflow-hidden rounded-xl border-2 ${active===i?'border-electric':'border-transparent'}`}><Image src={src} alt="Robot detail" fill className="object-cover" /></button>)}</div></div>; }

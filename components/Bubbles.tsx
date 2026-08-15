@@ -1,0 +1,1 @@
+export default function Bubbles() { return <div className="bubbles" aria-hidden="true"><span className="bubble-one"/><span className="bubble-two"/><span className="bubble-three"/><span className="bubble-four"/></div>; }

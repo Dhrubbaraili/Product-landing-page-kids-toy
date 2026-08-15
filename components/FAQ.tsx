@@ -1,0 +1,2 @@
+'use client';
+export default function FAQ({ faqs }: { faqs: string[][] }) { return <div className="mx-auto max-w-3xl divide-y divide-ink/10 rounded-3xl bg-white px-6 shadow-sm">{faqs.map(([q,a])=><details key={q} className="group py-5"><summary className="flex cursor-pointer list-none items-center justify-between gap-6 font-bold">{q}<span className="text-xl text-electric transition group-open:rotate-45">+</span></summary><p className="mt-3 max-w-2xl text-sm leading-7 text-ink/65">{a}</p></details>)}</div>; }
