@@ -3,6 +3,7 @@ import { google } from 'googleapis';
 import nodemailer from 'nodemailer';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createPrivateKey } from 'node:crypto';
 import { product } from '@/lib/product';
 
 const HEADERS = ['Order ID', 'Date & Time', 'Customer Name', 'Phone Number', 'Email Address', 'Exact Location', 'Product Name', 'Quantity', 'Price Per Piece', 'Total Price', 'Payment Method', 'Order Status', 'Notes'];
@@ -10,6 +11,15 @@ const required = (value: unknown) => typeof value === 'string' && value.trim().l
 const orderId = () => `KT-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character));
 const sheetRange = (tab: string, range: string) => `'${tab.replaceAll("'", "''")}'!${range}`;
+type ServiceAccountCredentials = { client_email?: string; private_key?: string };
+
+function validateServiceAccountCredentials(credentials: ServiceAccountCredentials) {
+  const clientEmail = credentials.client_email?.trim();
+  const privateKey = credentials.private_key?.replace(/\\n/g, '\n').trim();
+  if (!clientEmail || !privateKey) throw new Error('Google service-account JSON is missing required fields.');
+  try { createPrivateKey(privateKey); } catch { throw new Error('Google service-account private key is invalid.'); }
+  return { client_email: clientEmail, private_key: privateKey };
+}
 
 function emailLayout(title: string, body: string) { return `<div style="background:#eef8ff;padding:28px 12px;font-family:Arial,sans-serif;color:#12233f"><table style="max-width:620px;width:100%;margin:auto;background:#fff;border-radius:18px;overflow:hidden"><tr><td style="background:#12233f;padding:24px 28px;color:#fff;font-size:22px;font-weight:800">kids <span style="color:#21c4c7">Toy</span></td></tr><tr><td style="padding:30px"><h1 style="margin:0 0 12px;font-size:26px">${title}</h1>${body}</td></tr></table></div>`; }
 const row = (label: string, value: unknown) => `<tr><td style="padding:9px 0;color:#6b7890">${escapeHtml(label)}</td><td style="padding:9px 0;text-align:right;font-weight:700">${escapeHtml(value)}</td></tr>`;
@@ -18,9 +28,9 @@ function getServiceAccountCredentials() {
   const encodedCredentials = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
   if (encodedCredentials) {
     try {
-      const parsed = JSON.parse(Buffer.from(encodedCredentials, 'base64').toString('utf8')) as { client_email?: string; private_key?: string };
-      if (!parsed.client_email || !parsed.private_key) throw new Error('Google service-account JSON is missing required fields.');
-      return { client_email: parsed.client_email, private_key: parsed.private_key };
+      const normalizedBase64 = encodedCredentials.replace(/^data:application\/json;base64,/, '').replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      const parsed = JSON.parse(Buffer.from(normalizedBase64, 'base64').toString('utf8')) as ServiceAccountCredentials;
+      return validateServiceAccountCredentials(parsed);
     } catch (error) {
       if (error instanceof SyntaxError) throw new Error('Google service-account JSON is invalid.');
       throw error;
@@ -30,18 +40,14 @@ function getServiceAccountCredentials() {
   if (configuredPath) {
     const credentialPath = path.isAbsolute(configuredPath) ? configuredPath : path.join(process.cwd(), configuredPath);
     try {
-      const parsed = JSON.parse(fs.readFileSync(credentialPath, 'utf8')) as { client_email?: string; private_key?: string };
-      if (!parsed.client_email || !parsed.private_key) throw new Error('Google service-account JSON is missing required fields.');
-      return { client_email: parsed.client_email, private_key: parsed.private_key };
+      const parsed = JSON.parse(fs.readFileSync(credentialPath, 'utf8')) as ServiceAccountCredentials;
+      return validateServiceAccountCredentials(parsed);
     } catch (error) {
       if (error instanceof SyntaxError) throw new Error('Google service-account JSON is invalid.');
       throw error;
     }
   }
-  return {
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  };
+  return validateServiceAccountCredentials({ client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL, private_key: process.env.GOOGLE_PRIVATE_KEY });
 }
 
 function getSheetsClient() {
@@ -95,5 +101,5 @@ export async function POST(request: Request) {
     await transporter.sendMail({ from: process.env.EMAIL_FROM, to: process.env.BUSINESS_EMAIL, replyTo: String(email), subject: `New Product Order Received - ${id}`, html: emailLayout('New order received', details + '<p style="margin-top:22px;background:#fff5d8;padding:15px;border-radius:10px;font-weight:700">Please call the customer soon to confirm this order.</p>') });
     await transporter.sendMail({ from: process.env.EMAIL_FROM, to: String(email), replyTo: process.env.EMAIL_FROM, subject: 'Your Order Has Been Received - kids Toy', html: emailLayout(`Thank you, ${escapeHtml(name)}!`, `<p>We have received your order successfully.</p>${details}<p style="margin-top:22px">Our sales representative will call you soon to confirm your order.</p><p>Thank you,<br><b>kids Toy</b><br><span style="color:#6b7890">${escapeHtml(process.env.EMAIL_FROM)}</span></p>`) });
     return NextResponse.json({ success: true, orderId: id });
-  } catch (error) { const message = error instanceof Error ? error.message : 'Order submission failed. Please try again.'; const safeMessage = message.includes('DECODER') || message.includes('private key') || message.includes('service-account') ? 'Google service-account credentials are invalid or unavailable. Check the local JSON credential path.' : message; return NextResponse.json({ error: safeMessage }, { status: 500 }); }
+  } catch (error) { const message = error instanceof Error ? error.message : 'Order submission failed. Please try again.'; const safeMessage = message.includes('DECODER') || message.includes('private key') || message.includes('service-account') || message.includes('invalid_grant') || message.includes('Invalid JWT') ? 'Google service-account credentials were rejected. Generate a fresh JSON key and set GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 from that exact file.' : message; return NextResponse.json({ error: safeMessage }, { status: 500 }); }
 }
