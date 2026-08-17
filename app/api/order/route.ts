@@ -50,8 +50,9 @@ function getServiceAccountCredentials() {
   return validateServiceAccountCredentials({ client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL, private_key: process.env.GOOGLE_PRIVATE_KEY });
 }
 
-function getSheetsClient() {
+async function getSheetsClient() {
   const auth = new google.auth.GoogleAuth({ credentials: getServiceAccountCredentials(), scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  await auth.getAccessToken();
   return google.sheets({ version: 'v4', auth });
 }
 
@@ -91,15 +92,24 @@ export async function POST(request: Request) {
   if (![name, phone, email, location, productName].every(required) || !/^\S+@\S+\.\S+$/.test(String(email)) || productName !== product.name || priceNumber !== product.offerPrice || !Number.isInteger(quantityNumber) || quantityNumber < 1 || !Number.isFinite(totalNumber) || totalNumber !== priceNumber * quantityNumber) return NextResponse.json({ error: 'Please complete all fields with valid order details.' }, { status: 400 });
   const missing = ['GOOGLE_SHEET_ID', 'GOOGLE_SHEET_TAB_NAME', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'BUSINESS_EMAIL'].filter(key => !process.env[key]);
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 && !process.env.GOOGLE_SERVICE_ACCOUNT_JSON_PATH && (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY)) missing.push('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (or GOOGLE_SERVICE_ACCOUNT_JSON_PATH or GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY)');
-  if (missing.length) return NextResponse.json({ error: `Server is not configured yet. Missing: ${missing.join(', ')}` }, { status: 500 });
+  if (missing.length) return NextResponse.json({ stage: 'CONFIGURATION', error: `[CONFIGURATION] Server is not configured yet. Missing: ${missing.join(', ')}` }, { status: 500 });
   const id = orderId(); const date = new Date().toLocaleString('en-NP', { timeZone: 'Asia/Kathmandu' }); const status = 'New Order'; const payment = 'Cash On Delivery';
+  let stage = 'GOOGLE_AUTH';
   try {
-    const sheets = getSheetsClient(); const tab = await ensurePremiumSheetLayout(sheets);
+    const sheets = await getSheetsClient();
+    stage = 'SPREADSHEET_ACCESS';
+    let tab: string;
+    try { tab = await ensurePremiumSheetLayout(sheets); } catch (error) { if (error instanceof Error && error.message.includes('Google Sheet tab')) stage = 'TAB_NOT_FOUND'; throw error; }
+    stage = 'SHEET_WRITE';
     await sheets.spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEET_ID!, range: sheetRange(tab, 'A:M'), valueInputOption: 'USER_ENTERED', requestBody: { values: [[id, date, name, phone, email, location, productName, quantityNumber, priceNumber, totalNumber, payment, status, '']] } });
     const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT), secure: Number(process.env.SMTP_PORT) === 465, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
+    stage = 'SMTP_LOGIN';
+    await transporter.verify();
     const details = `<table style="width:100%;border-collapse:collapse">${row('Order ID', id)}${row('Date & Time', date)}${row('Customer', name)}${row('Phone', phone)}${row('Email', email)}${row('Location', location)}${row('Product', productName)}${row('Quantity', quantityNumber)}${row('Total price', `NPR ${totalNumber.toLocaleString('en-IN')}`)}${row('Payment', payment)}${row('Status', status)}</table>`;
+    stage = 'BUSINESS_EMAIL';
     await transporter.sendMail({ from: process.env.EMAIL_FROM, to: process.env.BUSINESS_EMAIL, replyTo: String(email), subject: `New Product Order Received - ${id}`, html: emailLayout('New order received', details + '<p style="margin-top:22px;background:#fff5d8;padding:15px;border-radius:10px;font-weight:700">Please call the customer soon to confirm this order.</p>') });
+    stage = 'CUSTOMER_EMAIL';
     await transporter.sendMail({ from: process.env.EMAIL_FROM, to: String(email), replyTo: process.env.EMAIL_FROM, subject: 'Your Order Has Been Received - kids Toy', html: emailLayout(`Thank you, ${escapeHtml(name)}!`, `<p>We have received your order successfully.</p>${details}<p style="margin-top:22px">Our sales representative will call you soon to confirm your order.</p><p>Thank you,<br><b>kids Toy</b><br><span style="color:#6b7890">${escapeHtml(process.env.EMAIL_FROM)}</span></p>`) });
     return NextResponse.json({ success: true, orderId: id });
-  } catch (error) { const message = error instanceof Error ? error.message : 'Order submission failed. Please try again.'; const safeMessage = message.includes('DECODER') || message.includes('private key') || message.includes('service-account') || message.includes('invalid_grant') || message.includes('Invalid JWT') ? 'Google service-account credentials were rejected. Generate a fresh JSON key and set GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 from that exact file.' : message; return NextResponse.json({ error: safeMessage }, { status: 500 }); }
+  } catch (error) { const message = error instanceof Error ? error.message : 'Order submission failed. Please try again.'; const safeMessage = stage === 'GOOGLE_AUTH' ? 'Google service-account credentials were rejected.' : stage === 'SMTP_LOGIN' ? 'SMTP credentials were rejected by the mail provider.' : stage === 'BUSINESS_EMAIL' ? 'The business notification email could not be sent.' : stage === 'CUSTOMER_EMAIL' ? 'The customer confirmation email could not be sent.' : message.includes('Google Sheet tab') ? 'The configured Google Sheet tab was not found.' : stage === 'SHEET_WRITE' ? 'The order could not be written to Google Sheets.' : 'The order submission failed.'; return NextResponse.json({ stage, error: `[${stage}] ${safeMessage}` }, { status: 500 }); }
 }
